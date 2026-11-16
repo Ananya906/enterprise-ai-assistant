@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Enterprise AI Knowledge Assistant</title>
+<style>
+  :root { --bg:#0f172a; --card:#1e293b; --muted:#94a3b8; --acc:#38bdf8; --text:#e2e8f0; }
+  * { box-sizing:border-box; }
+  body { margin:0; font-family:system-ui,sans-serif; background:var(--bg); color:var(--text); }
+  header { padding:18px 28px; border-bottom:1px solid #334155; font-size:20px; font-weight:600; }
+  main { display:grid; grid-template-columns:320px 1fr; gap:20px; padding:20px 28px; max-width:1100px; margin:auto; }
+  @media (max-width:800px){ main{grid-template-columns:1fr;} }
+  .card { background:var(--card); border-radius:12px; padding:16px; }
+  h3 { margin:0 0 12px; font-size:15px; color:var(--muted); text-transform:uppercase; letter-spacing:.05em; }
+  button { background:var(--acc); color:#0f172a; border:0; border-radius:8px; padding:9px 14px; font-weight:600; cursor:pointer; }
+  button:disabled { opacity:.5; }
+  input[type=text] { flex:1; padding:10px; border-radius:8px; border:1px solid #475569; background:#0f172a; color:var(--text); }
+  .doc { display:flex; justify-content:space-between; align-items:center; padding:8px 0; border-bottom:1px solid #334155; font-size:14px; }
+  .doc small { color:var(--muted); display:block; }
+  .doc a { color:#f87171; cursor:pointer; font-size:12px; }
+  #chat { min-height:320px; max-height:55vh; overflow:auto; display:flex; flex-direction:column; gap:12px; margin-bottom:12px; }
+  .msg { padding:10px 14px; border-radius:10px; line-height:1.45; white-space:pre-wrap; }
+  .u { background:#334155; align-self:flex-end; }
+  .a { background:#0c4a6e; }
+  .src { font-size:12px; color:var(--muted); margin-top:8px; }
+  .row { display:flex; gap:8px; }
+  select { background:#0f172a; color:var(--text); border:1px solid #475569; border-radius:8px; padding:8px; width:100%; margin-bottom:10px; }
+</style>
+</head>
+<body>
+<header>📚 Enterprise AI Knowledge Assistant</header>
+<main>
+  <section class="card">
+    <h3>Documents</h3>
+    <div class="row" style="margin-bottom:12px">
+      <input type="file" id="file" accept="application/pdf">
+      <button id="up" onclick="upload()">Upload</button>
+    </div>
+    <div id="status" style="font-size:13px;color:var(--muted);margin-bottom:8px"></div>
+    <div id="docs"></div>
+  </section>
+  <section class="card">
+    <h3>Ask a question</h3>
+    <select id="scope"><option value="">All documents</option></select>
+    <div id="chat"></div>
+    <div class="row">
+      <input type="text" id="q" placeholder="e.g. What is the leave policy?" onkeydown="if(event.key==='Enter')ask()">
+      <button id="ask" onclick="ask()">Ask</button>
+    </div>
+  </section>
+</main>
+<script>
+const $ = id => document.getElementById(id);
+function esc(s){ return s.replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+
+async function loadDocs() {
+  const docs = await (await fetch('/documents')).json();
+  $('docs').innerHTML = docs.map(d =>
+    `<div class="doc"><div>${esc(d.filename)}<small>${d.pages} pages · ${d.chunks} chunks</small></div>
+     <a onclick="del('${d.id}')">delete</a></div>`).join('') || '<small style="color:var(--muted)">No documents yet</small>';
+  $('scope').innerHTML = '<option value="">All documents</option>' +
+    docs.map(d => `<option value="${d.id}">${esc(d.filename)}</option>`).join('');
+}
+async function upload() {
+  const f = $('file').files[0]; if (!f) return;
+  const fd = new FormData(); fd.append('file', f);
+  $('up').disabled = true; $('status').textContent = 'Uploading & indexing...';
+  const r = await fetch('/upload', {method:'POST', body: fd});
+  const j = await r.json();
+  $('status').textContent = r.ok ? `Indexed ${j.filename} (${j.chunks} chunks)` : `Error: ${j.detail}`;
+  $('up').disabled = false; $('file').value = ''; loadDocs();
+}
+async function del(id) { await fetch('/documents/' + id, {method:'DELETE'}); loadDocs(); }
+function add(cls, html) {
+  const d = document.createElement('div'); d.className = 'msg ' + cls; d.innerHTML = html;
+  $('chat').appendChild(d); $('chat').scrollTop = 1e9; return d;
+}
+async function ask() {
+  const q = $('q').value.trim(); if (!q) return;
+  $('q').value = ''; add('u', esc(q));
+  const wait = add('a', '…thinking');
+  const r = await fetch('/ask', {method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({question: q, doc_id: $('scope').value || null})});
+  const j = await r.json();
+  if (!r.ok) { wait.innerHTML = 'Error: ' + esc(j.detail || 'request failed'); return; }
+  const src = j.sources.map((s,i) => `[${i+1}] ${esc(s.filename)} p.${s.page} (score ${s.score})`).join('<br>');
+  wait.innerHTML = esc(j.answer) + (src ? `<div class="src"><b>Sources (${j.mode})</b><br>${src}</div>` : '');
+}
+loadDocs();
+</script>
+</body>
+</html>

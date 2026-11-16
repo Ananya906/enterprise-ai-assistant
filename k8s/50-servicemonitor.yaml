@@ -1,0 +1,18 @@
+# Requires the Prometheus Operator CRDs (installed by kube-prometheus-stack, see README step 6).
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: kb-assistant
+  namespace: kb-assistant
+  labels:
+    release: monitoring        # must match the Helm release name of kube-prometheus-stack
+spec:
+  selector:
+    matchLabels:
+      app: enterprise-ai-assistant
+  namespaceSelector:
+    matchNames: [kb-assistant]
+  endpoints:
+    - port: http
+      path: /metrics
+      interval: 15s

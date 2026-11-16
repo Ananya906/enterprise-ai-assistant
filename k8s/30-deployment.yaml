@@ -1,0 +1,51 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kb-assistant
+  namespace: kb-assistant
+  labels:
+    app: enterprise-ai-assistant
+spec:
+  replicas: 1            # single replica: index lives on a ReadWriteOnce volume (see README "Limitations")
+  strategy:
+    type: Recreate       # RWO volume cannot be attached by two pods during a rolling update
+  selector:
+    matchLabels:
+      app: enterprise-ai-assistant
+  template:
+    metadata:
+      labels:
+        app: enterprise-ai-assistant
+    spec:
+      securityContext:
+        fsGroup: 10001
+      containers:
+        - name: api
+          image: enterprise-ai-assistant:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8000
+          envFrom:
+            - configMapRef:
+                name: kb-assistant-config
+            - secretRef:
+                name: kb-assistant-secret
+          volumeMounts:
+            - name: data
+              mountPath: /data
+          readinessProbe:
+            httpGet: { path: /ready, port: http }
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet: { path: /health, port: http }
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          resources:
+            requests: { cpu: 100m, memory: 256Mi }
+            limits: { cpu: "1", memory: 1Gi }
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: kb-assistant-data
